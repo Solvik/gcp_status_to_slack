@@ -81,7 +81,7 @@ class GCPStatusToSlack():
             config.SLACK_HOOKS_SERVICE,
             data=payload,
         )
-        r.raise_for_exception()
+        r.raise_for_status()
 
     def run(self):
         '''
