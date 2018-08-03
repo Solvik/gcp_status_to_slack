@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 import json
+import sys
 import requests
-import pytz
-from datetime import datetime
+from datetime import date
 from dateutil import parser
 
 import config
@@ -13,48 +13,61 @@ def to_datetime(dt):
 
 class GCPStatusToSlack():
     '''
-    Fetch GCP Status json and compare watched services with last run time of
-    this script to notify new events in a Slack channel
+    Fetch GCP Status json and compare the last update of watched services incidents
+    to notify new events in a Slack channel
     '''
     def __init__(self):
         r = requests.get(config.GCP_INCIDENTS_URL)
         r.raise_for_status()
         self.data = r.json()
-        self.last_run = None
+        self.delta = None
+        self.today = date.today()
 
     def get_last_run(self):
         '''
-        Get last run date of the script
+        Get last state of delta file
         '''
         try:
             fd = open(config.LAST_RUN_FILE, 'r')
             content = fd.read()
             fd.close()
-            self.last_run = to_datetime(content)
-        except:
-            self.last_run = datetime.now(tz=pytz.utc)
-        return self.last_run
+            self.delta = json.loads(content)
+        except Exception as e:
+            sys.stderr.write('Cannot read/parse delta file : {}. Using an empty'
+                             'delta\n'.format(e))
+            self.delta = {}
 
     def set_last_run(self):
         '''
-        Set last run datetime of the script, in UTC
+        Write the delta state in file
         '''
         fd = open(config.LAST_RUN_FILE, 'w')
         fd.write(
-            datetime.now(tz=pytz.utc)
-            .strftime('%Y-%m-%dT%H:%M:%SZ')
+            json.dumps(self.delta)
         )
         fd.close()
+
+    def cleanup(self):
+        '''
+        Delete old entries of the delta dict
+        '''
+        to_delete = [event for event, last_modified in self.delta.items() if \
+                     to_datetime(last_modified).date() < self.today]
+        for key in to_delete:
+            del self.delta[key]
 
     def find_new_events(self):
         '''
         Find new events in the json
         Filters events by keeping only watched services
         '''
-        filtered_events = [x for x in self.data if x['service_key'] in config.GCP_SERVICES]
+        filtered_events = [x for x in self.data if x['service_key'] in \
+                           config.GCP_SERVICES and \
+                           to_datetime(x['modified']).date() == self.today]
 
         for event in filtered_events:
-            if to_datetime(event['modified']) > self.get_last_run():
+            if str(event['number']) not in self.delta or \
+               self.delta[str(event['number'])] < event['modified']:
                 self.notify(event)
 
     def notify(self, event):
@@ -69,25 +82,29 @@ class GCPStatusToSlack():
                 config.GCP_STATUS_URL,
                 event['uri'])
 
-        payload = {
-            'payload': json.dumps({
-                'channel': config.SLACK_CHANNEL,
-                'username': config.SLACK_USERNAME,
-                'text': notification,
-                'icon_emoji': ':google:'
-            })
-        }
-        r = requests.post(
-            config.SLACK_HOOKS_SERVICE,
-            data=payload,
-        )
-        r.raise_for_status()
+        # Save the last evend in the delta file
+        self.delta[str(event['number'])] = event['modified']
+
+        for channel in config.SLACK_CHANNELS:
+            payload = {
+                'payload': json.dumps({
+                    'channel': channel,
+                    'username': config.SLACK_USERNAME,
+                    'text': notification,
+                    'icon_emoji': ':google:'
+                })
+            }
+            r = requests.post(
+                config.SLACK_HOOKS_SERVICE,
+                data=payload,
+            )
 
     def run(self):
         '''
         Run routine
         '''
         self.get_last_run()
+        self.cleanup()
         self.find_new_events()
         self.set_last_run()
 
