@@ -56,6 +56,12 @@ class GCPStatusToSlack():
         for key in to_delete:
             del self.delta[key]
 
+    def emoji(self, event):
+        '''
+        Return an emoji depending of the severity
+        '''
+        return config.SEVERITY_EMOJIS.get(event['severity'], '')
+
     def find_new_events(self):
         '''
         Find new events in the json
@@ -104,8 +110,9 @@ class GCPStatusToSlack():
         # notify every channels
         for channel in config.SLACK_CHANNELS:
             for update in updates:
-                notification = u'{} incident #{} update: {}\n'\
+                notification = u'{}{} incident #{} update: {}\n'\
                     'More information: {}{}'.format(
+                        self.emoji(event),
                         event['service_name'],
                         event['number'],
                         update['text'],

@@ -18,3 +18,7 @@ SLACK_CHANNELS = [
 	      '#monitoring',
 	      ]
 SLACK_USERNAME = 'GCP Status'
+SEVERITY_EMOJIS = {
+    'medium': ':yellow_card:',
+    'high': ':red_card:',
+}
