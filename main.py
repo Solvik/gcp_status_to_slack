@@ -61,43 +61,69 @@ class GCPStatusToSlack():
         Find new events in the json
         Filters events by keeping only watched services
         '''
+
+        # let's keep only events who got modified today
         filtered_events = [x for x in self.data if x['service_key'] in \
                            config.GCP_SERVICES and \
                            to_datetime(x['modified']).date() == self.today]
 
+        # then let's notify events that we don't know yet or events which got
+        # modified
         for event in filtered_events:
-            if str(event['number']) not in self.delta or \
-               self.delta[str(event['number'])] < event['modified']:
+            event_id = str(event['number'])
+            if event_id not in self.delta or \
+               self.delta[event_id] < event['modified']:
                 self.notify(event)
 
     def notify(self, event):
         '''
         Send notification to slack
         '''
-        notification = u'{} incident #{} update: {}\n'\
-            'More information: {}{}'.format(
-                event['service_name'],
-                event['number'],
-                event['most-recent-update']['text'],
-                config.GCP_STATUS_URL,
-                event['uri'])
+        event_id = str(event['number'])
+
+        # if we recorded an event, let's find updates that are newer than the
+        # last run datetime
+        if event_id in self.delta:
+            updates = [
+                x for x in event['updates'] if \
+                to_datetime(x['modified']) > to_datetime(self.delta[event_id])
+            ]
+        # if it's an event we don't know yet, notify every updates of today
+        else:
+            updates = [
+                x for x in event['updates'] if \
+                to_datetime(x['modified']).date() == self.today
+            ]
+
+        # sort updates by creation date
+        updates = sorted(updates, key=lambda k: k['modified'])
 
         # Save the last evend in the delta file
-        self.delta[str(event['number'])] = event['modified']
+        self.delta[event_id] = event['modified']
 
+        # notify every channels
         for channel in config.SLACK_CHANNELS:
-            payload = {
-                'payload': json.dumps({
-                    'channel': channel,
-                    'username': config.SLACK_USERNAME,
-                    'text': notification,
-                    'icon_emoji': ':google:'
-                })
-            }
-            r = requests.post(
-                config.SLACK_HOOKS_SERVICE,
-                data=payload,
-            )
+            for update in updates:
+                notification = u'{} incident #{} update: {}\n'\
+                    'More information: {}{}'.format(
+                        event['service_name'],
+                        event['number'],
+                        update['text'],
+                        config.GCP_STATUS_URL,
+                        event['uri'])
+
+                payload = {
+                    'payload': json.dumps({
+                        'channel': channel,
+                        'username': config.SLACK_USERNAME,
+                        'text': notification,
+                        'icon_emoji': ':google:'
+                    })
+                }
+                r = requests.post(
+                    config.SLACK_HOOKS_SERVICE,
+                    data=payload,
+                )
 
     def run(self):
         '''
