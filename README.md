@@ -24,6 +24,8 @@ GCP_SERVICES = [
 
 SLACK_HOOKS_SERVICE = 'https://hooks.slack.com/services/XXXXXX/ZZZZZZZZZZZZZZZZZZZZZZ'
 
-SLACK_CHANNEL = '#monitoring'
+SLACK_CHANNELS = [
+	      '#monitoring',
+	      ]
 SLACK_USERNAME = 'GCP Status'
 ```
